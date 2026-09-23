@@ -11,10 +11,19 @@
 def call (Map configMap){
 pipeline {
     agent any
+    environment {
+        project = configMap.get("project")
+        component = configMap.get("component")
+    }
     stages {
         stage('Build') {
             steps {
-                echo "Compiling application for build ..." 
+                scripts {
+                    sh """
+                        echo "Building stage"
+                        echo "Project is: ${project}, componenet is: ${component}"
+                    """
+                }
             }
         }
         stage('Test') {
