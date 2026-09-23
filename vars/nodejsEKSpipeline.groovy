@@ -7,8 +7,8 @@ def call () {
     }
     environment {
         acc_id    = "453388807064"
-        project   = "roboshop"
-        component = "catalogue"
+        project   = configMap.get("project")
+        component = configMap.get("component")
         region    = "us-east-1"
     }
 
