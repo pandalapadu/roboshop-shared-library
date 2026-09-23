@@ -31,7 +31,6 @@ def call () {
 
                     env.APP_NAME    = appName
                     env.APP_VERSION = appVersion
-                    printenv | sort
                 }
             }
         }
