@@ -7,6 +7,7 @@
 // │   └── com/roboshop/Utils.groovy # Standard Groovy classes (optional helper methods)
 // └── resources/                    # Configuration templates, JSON schemas, etc.
 
+// this is function , by default if some one called this function , call function will be executed
 def call (){
 pipeline {
     agent any
