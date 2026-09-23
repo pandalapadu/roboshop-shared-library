@@ -18,7 +18,7 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                scripts {
+                script {
                     sh """
                         echo "Building stage"
                         echo "Project is: ${project}, componenet is: ${component}"
