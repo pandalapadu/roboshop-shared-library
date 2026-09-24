@@ -28,6 +28,7 @@ def call () {
                     echo "Version: ${env.APP_VERSION}"
                     env.APP_NAME    = appName
                     env.APP_VERSION = appVersion
+                    printenv | sort    
                 }
             }
         }
