@@ -41,12 +41,17 @@ def call(Map configMap) {
 
             stage('Unit test') {
                 steps {
-                    try {
-                        sh 'npm test'
-                        updateCommitStatus("success", "unit tests are successful", "unit-tests")
-                    }
-                    catch(Exception e){
-                        updateCommitStatus("failure", "unit tests are failed", "unit-tests")
+                    // FIXED: Wrapped the try-catch block inside a script step
+                    script {
+                        try {
+                            sh 'npm test'
+                            updateCommitStatus("success", "unit tests are successful", "unit-tests")
+                        }
+                        catch(Exception e) {
+                            updateCommitStatus("failure", "unit tests are failed", "unit-tests")
+                            // Propagates the failure back to Jenkins to accurately mark the build as failed
+                            throw e 
+                        }
                     }
                 }
             }
@@ -135,7 +140,7 @@ def call(Map configMap) {
                             def ecrRepo     = "${ecrRegistry}/${env.project}/${env.component}"
                             sh """
                                 aws ecr get-login-password --region ${env.region} | docker login --username AWS --password-stdin ${ecrRegistry}
-                                docker tag ${env.APP_NAME}:${env.APP_VERSION} ${ecrRepo}:${env.APP_VERSION}
+                                docker tag ${env.APP_NAME}:${env.APP_VERSION} ${ecRepo}:${env.APP_VERSION}
                                 docker push ${ecrRepo}:${env.APP_VERSION}
                             """
                         }
