@@ -63,7 +63,7 @@ def call(Map configMap) {
                         catch (Exception e) {
 
                             echo "❌ Read Version failed"
-                            echo e.getMessage()
+                            echo "Error: ${e.message}"
 
                             throw e
                         }
@@ -86,7 +86,7 @@ def call(Map configMap) {
 
                         try {
 
-                            echo "Installing application dependencies..."
+                            echo "Installing dependencies..."
 
                             sh 'npm install'
 
@@ -96,7 +96,7 @@ def call(Map configMap) {
                         catch (Exception e) {
 
                             echo "❌ Dependency installation failed"
-                            echo e.getMessage()
+                            echo "Error: ${e.message}"
 
                             throw e
                         }
@@ -125,13 +125,6 @@ def call(Map configMap) {
 
                             echo "✅ Unit tests successful"
 
-
-                            /*
-                             * GitHub:
-                             *
-                             * unit-tests
-                             */
-
                             utils.safeUpdateCommitStatus(
                                 "success",
                                 "unit tests are successful",
@@ -150,8 +143,7 @@ def call(Map configMap) {
                             )
 
                             /*
-                             * Preserve the original
-                             * unit-test failure.
+                             * Preserve original failure.
                              */
 
                             throw e
@@ -175,7 +167,7 @@ def call(Map configMap) {
 
                         try {
 
-                            echo "Running dependency/library security scan..."
+                            echo "Running dependency/library scan..."
 
                             sh '''
                                 npm audit \
@@ -183,13 +175,6 @@ def call(Map configMap) {
                             '''
 
                             echo "✅ Library scan successful"
-
-
-                            /*
-                             * GitHub:
-                             *
-                             * library-scan
-                             */
 
                             utils.safeUpdateCommitStatus(
                                 "success",
@@ -242,13 +227,6 @@ def call(Map configMap) {
 
                             echo "✅ Sonar scan successful"
 
-
-                            /*
-                             * GitHub:
-                             *
-                             * sonar-scan
-                             */
-
                             utils.safeUpdateCommitStatus(
                                 "success",
                                 "sonar scan are successful",
@@ -296,13 +274,6 @@ def call(Map configMap) {
                             """
 
                             echo "✅ Docker image build successful"
-
-
-                            /*
-                             * GitHub:
-                             *
-                             * build-image
-                             */
 
                             utils.safeUpdateCommitStatus(
                                 "success",
@@ -353,7 +324,7 @@ def call(Map configMap) {
                             """
 
 
-                            echo "Running Trivy image scan..."
+                            echo "Running Trivy image vulnerability scan..."
 
                             def imageScan = sh(
                                 script: """
@@ -380,8 +351,7 @@ def call(Map configMap) {
                                     "trivy-scan"
                                 )
 
-                                currentBuild.result =
-                                    'UNSTABLE'
+                                currentBuild.result = 'UNSTABLE'
 
                             }
                             else {
@@ -442,7 +412,7 @@ def call(Map configMap) {
                                 echo "======================================"
                                 echo "ECR Registry  : ${ecrRegistry}"
                                 echo "ECR Repository: ${ecrRepository}"
-                                echo "Image         : ${env.APP_VERSION}"
+                                echo "Image         : ${env.APP_NAME}:${env.APP_VERSION}"
                                 echo "======================================"
 
 
@@ -462,7 +432,7 @@ def call(Map configMap) {
 
 
                                 /*
-                                 * DOCKER TAG
+                                 * TAG
                                  */
 
                                 sh """
@@ -473,7 +443,7 @@ def call(Map configMap) {
 
 
                                 /*
-                                 * DOCKER PUSH
+                                 * PUSH
                                  */
 
                                 sh """
@@ -482,14 +452,7 @@ def call(Map configMap) {
                                 """
 
 
-                                echo "✅ Image pushed successfully"
-
-
-                                /*
-                                 * GitHub:
-                                 *
-                                 * push-image
-                                 */
+                                echo "✅ Image push successful"
 
                                 utils.safeUpdateCommitStatus(
                                     "success",
@@ -531,7 +494,7 @@ def call(Map configMap) {
 
                     try {
 
-                        echo "Cleaning unused Docker images..."
+                        echo "Cleaning Docker images..."
 
                         sh 'docker image prune -f'
 
@@ -540,14 +503,13 @@ def call(Map configMap) {
                     }
                     catch (Exception e) {
 
-                        echo "⚠️ Docker cleanup failed"
-
                         /*
-                         * Do not change the actual pipeline
-                         * result because cleanup failed.
+                         * Cleanup should never hide the actual
+                         * pipeline result.
                          */
 
-                        echo e.getMessage()
+                        echo "⚠️ Docker cleanup failed"
+                        echo "Error: ${e.message}"
                     }
                 }
             }
