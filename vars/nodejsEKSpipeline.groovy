@@ -41,7 +41,15 @@ def call(Map configMap) {
 
             stage('Unit test') {
                 steps {
-                    sh 'npm test'
+                    try {
+                        sh """ 
+                            npm test
+                        """
+                        updateCommitStatus("success", "unit tests are successful", "unit-tests")
+                    }
+                    catch(Exception e){
+                        updateCommitStatus("failure", "unit tests are failed", "unit-tests")
+                    }
                 }
             }
 
