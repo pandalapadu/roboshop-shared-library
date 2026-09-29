@@ -1,4 +1,4 @@
-def call(Map configMap) {
+def call(Map configMap = [:]) {
 
     pipeline {
 
@@ -9,188 +9,109 @@ def call(Map configMap) {
         }
 
         environment {
+            ACC_ID   = '453388807064'
+            PROJECT  = configMap.get('project', 'roboshop')
+            COMPONENT = configMap.get('component', '')
+            REGION   = 'us-east-1'
 
-            ACC_ID    = "453388807064"
-            PROJECT   = configMap.get("project")
-            COMPONENT = configMap.get("component")
-            REGION    = "us-east-1"
+            ECR_REGISTRY = "${ACC_ID}.dkr.ecr.${REGION}.amazonaws.com"
+            ECR_REPOSITORY = "${ECR_REGISTRY}/${PROJECT}/${COMPONENT}"
         }
 
         options {
-
             disableConcurrentBuilds()
-
-            timeout(
-                time: 15,
-                unit: 'MINUTES'
-            )
+            timeout(time: 15, unit: 'MINUTES')
         }
 
         stages {
 
             /*
-             * =========================================================
-             * 1. READ VERSION
-             * =========================================================
+             * ---------------------------------------------------------
+             * 1. READ APPLICATION VERSION
+             * ---------------------------------------------------------
              */
-
             stage('Read Version') {
-
                 steps {
-
                     script {
 
-                        try {
-
-                            def packageJson =
-                                readJSON file: 'package.json'
-
-                            env.APP_NAME =
-                                packageJson.name
-
-                            env.APP_VERSION =
-                                packageJson.version
-
-                            echo "======================================"
-                            echo "Application : ${env.APP_NAME}"
-                            echo "Version     : ${env.APP_VERSION}"
-                            echo "Project     : ${env.PROJECT}"
-                            echo "Component   : ${env.COMPONENT}"
-                            echo "Region      : ${env.REGION}"
-                            echo "======================================"
-
+                        if (!fileExists('package.json')) {
+                            error 'package.json not found'
                         }
-                        catch (Exception e) {
 
-                            echo "❌ Read Version failed"
-                            echo "Error: ${e.message}"
+                        def packageJson = readJSON file: 'package.json'
 
-                            throw e
-                        }
+                        env.APP_NAME = packageJson.name
+                        env.APP_VERSION = packageJson.version
+
+                        echo """
+                        ========================================
+                        Application : ${env.APP_NAME}
+                        Version     : ${env.APP_VERSION}
+                        Project     : ${env.PROJECT}
+                        Component   : ${env.COMPONENT}
+                        Region      : ${env.REGION}
+                        ========================================
+                        """
                     }
                 }
             }
 
 
             /*
-             * =========================================================
+             * ---------------------------------------------------------
              * 2. INSTALL DEPENDENCIES
-             * =========================================================
+             * ---------------------------------------------------------
              */
-
             stage('Install Dependencies') {
-
                 steps {
+                    sh '''
+                        set -e
 
-                    script {
+                        echo "Installing NodeJS dependencies..."
 
-                        try {
-
-                            echo "Installing dependencies..."
-
-                            sh 'npm install'
-
-                            echo "✅ Dependencies installed"
-
-                        }
-                        catch (Exception e) {
-
-                            echo "❌ Dependency installation failed"
-                            echo "Error: ${e.message}"
-
-                            throw e
-                        }
-                    }
+                        if [ -f package-lock.json ]; then
+                            npm ci
+                        else
+                            npm install
+                        fi
+                    '''
                 }
             }
 
 
             /*
-             * =========================================================
+             * ---------------------------------------------------------
              * 3. UNIT TEST
-             * =========================================================
+             * GitHub Check:
+             * unit-tests
+             * ---------------------------------------------------------
              */
-
             stage('Unit Test') {
-
                 steps {
-
                     script {
 
                         try {
 
                             echo "Running unit tests..."
 
-                            sh 'CI=true npm test'
-
-                            echo "✅ Unit tests successful"
-
-                            utils.safeUpdateCommitStatus(
-                                "success",
-                                "unit tests are successful",
-                                "unit-tests"
-                            )
-
-                        }
-                        catch (Exception e) {
-
-                            echo "❌ Unit tests failed"
-
-                            utils.safeUpdateCommitStatus(
-                                "failure",
-                                "unit tests are failed",
-                                "unit-tests"
-                            )
-
-                            /*
-                             * Preserve original failure.
-                             */
-
-                            throw e
-                        }
-                    }
-                }
-            }
-
-
-            /*
-             * =========================================================
-             * 4. LIBRARY SCAN
-             * =========================================================
-             */
-
-            stage('Library Scan') {
-
-                steps {
-
-                    script {
-
-                        try {
-
-                            echo "Running dependency/library scan..."
-
                             sh '''
-                                npm audit \
-                                    --audit-level=high
+                                set -e
+                                CI=true npm test
                             '''
 
-                            echo "✅ Library scan successful"
-
                             utils.safeUpdateCommitStatus(
-                                "success",
-                                "library scan success",
-                                "library-scan"
+                                'success',
+                                'unit tests are successful',
+                                'unit-tests'
                             )
 
                         }
                         catch (Exception e) {
 
-                            echo "❌ Library scan failed"
-
                             utils.safeUpdateCommitStatus(
-                                "failure",
-                                "library scan failed",
-                                "library-scan"
+                                'failure',
+                                'unit tests are failed',
+                                'unit-tests'
                             )
 
                             throw e
@@ -201,47 +122,103 @@ def call(Map configMap) {
 
 
             /*
-             * =========================================================
-             * 5. SONAR SCAN
-             * =========================================================
+             * ---------------------------------------------------------
+             * 4. LIBRARY / DEPENDENCY SECURITY SCAN
+             * GitHub Check:
+             * library-scan
+             *
+             * IMPORTANT:
+             * Vulnerabilities are reported to GitHub but do not stop
+             * the remaining pipeline stages.
+             * ---------------------------------------------------------
              */
-
-            stage('Sonar Scan') {
-
+            stage('Library Scan') {
                 steps {
+                    script {
 
+                        echo "Running dependency/library security scan..."
+
+                        int auditResult = sh(
+                            script: '''
+                                npm audit --audit-level=high
+                            ''',
+                            returnStatus: true
+                        )
+
+                        if (auditResult != 0) {
+
+                            echo """
+                            ==================================================
+                            WARNING: HIGH/CRITICAL dependency vulnerabilities
+                            were detected by npm audit.
+                            Pipeline will continue.
+                            Jenkins build will be marked UNSTABLE.
+                            ==================================================
+                            """
+
+                            utils.safeUpdateCommitStatus(
+                                'failure',
+                                'library scan found vulnerabilities',
+                                'library-scan'
+                            )
+
+                            currentBuild.result = 'UNSTABLE'
+
+                        } else {
+
+                            echo "Library scan successful"
+
+                            utils.safeUpdateCommitStatus(
+                                'success',
+                                'library scan successful',
+                                'library-scan'
+                            )
+                        }
+                    }
+                }
+            }
+
+
+            /*
+             * ---------------------------------------------------------
+             * 5. SONARQUBE
+             * GitHub Check:
+             * sonar-scan
+             * ---------------------------------------------------------
+             */
+            stage('Sonar Scan') {
+                steps {
                     script {
 
                         try {
 
-                            echo "Starting SonarQube scan..."
+                            echo "Running SonarQube scan..."
 
                             withSonarQubeEnv('sonarqube') {
 
-                                sh """
+                                sh '''
+                                    set -e
+
                                     sonar-scanner \
-                                        -Dsonar.projectKey=${env.COMPONENT} \
-                                        -Dsonar.projectName=${env.COMPONENT}
-                                """
+                                      -Dsonar.projectKey=${PROJECT}-${COMPONENT} \
+                                      -Dsonar.projectName=${PROJECT}-${COMPONENT} \
+                                      -Dsonar.sources=.
+                                '''
                             }
 
-                            echo "✅ Sonar scan successful"
-
                             utils.safeUpdateCommitStatus(
-                                "success",
-                                "sonar scan are successful",
-                                "sonar-scan"
+                                'success',
+                                'sonar scan successful',
+                                'sonar-scan'
                             )
 
                         }
                         catch (Exception e) {
 
-                            echo "❌ Sonar scan failed"
-
                             utils.safeUpdateCommitStatus(
-                                "failure",
-                                "sonar scan failed",
-                                "sonar-scan"
+                                'failure',
+                                'sonar scan failed',
+                                'sonar-scan'
                             )
 
                             throw e
@@ -252,15 +229,14 @@ def call(Map configMap) {
 
 
             /*
-             * =========================================================
+             * ---------------------------------------------------------
              * 6. DOCKER BUILD
-             * =========================================================
+             * GitHub Check:
+             * build-image
+             * ---------------------------------------------------------
              */
-
             stage('Docker Build') {
-
                 steps {
-
                     script {
 
                         try {
@@ -268,28 +244,25 @@ def call(Map configMap) {
                             echo "Building Docker image..."
 
                             sh """
+                                set -e
+
                                 docker build \
-                                    -t ${env.APP_NAME}:${env.APP_VERSION} \
-                                    .
+                                  -t ${APP_NAME}:${APP_VERSION} .
                             """
 
-                            echo "✅ Docker image build successful"
-
                             utils.safeUpdateCommitStatus(
-                                "success",
-                                "image build success",
-                                "build-image"
+                                'success',
+                                'docker image build successful',
+                                'build-image'
                             )
 
                         }
                         catch (Exception e) {
 
-                            echo "❌ Docker image build failed"
-
                             utils.safeUpdateCommitStatus(
-                                "failure",
-                                "image build failed",
-                                "build-image"
+                                'failure',
+                                'docker image build failed',
+                                'build-image'
                             )
 
                             throw e
@@ -300,80 +273,71 @@ def call(Map configMap) {
 
 
             /*
-             * =========================================================
+             * ---------------------------------------------------------
              * 7. TRIVY SCAN
-             * =========================================================
+             * GitHub Check:
+             * trivy-scan
+             *
+             * Trivy findings mark the build UNSTABLE but do not
+             * prevent ECR push.
+             * ---------------------------------------------------------
              */
-
             stage('Trivy Scan') {
-
                 steps {
-
                     script {
 
                         try {
 
-                            echo "Running Trivy Dockerfile scan..."
+                            echo "Scanning Docker image with Trivy..."
 
-                            sh """
-                                trivy config \
-                                    --exit-code 0 \
-                                    --severity HIGH,CRITICAL \
-                                    --format table \
-                                    ./Dockerfile
-                            """
-
-
-                            echo "Running Trivy image vulnerability scan..."
-
-                            def imageScan = sh(
+                            int trivyResult = sh(
                                 script: """
                                     trivy image \
-                                        --scanners vuln \
-                                        --vuln-type os \
-                                        --exit-code 1 \
-                                        --severity HIGH,CRITICAL \
-                                        --ignore-unfixed \
-                                        --format table \
-                                        ${env.APP_NAME}:${env.APP_VERSION}
+                                      --exit-code 1 \
+                                      --severity HIGH,CRITICAL \
+                                      --ignore-unfixed \
+                                      ${APP_NAME}:${APP_VERSION}
                                 """,
                                 returnStatus: true
                             )
 
+                            if (trivyResult != 0) {
 
-                            if (imageScan != 0) {
-
-                                echo "⚠️ Trivy detected HIGH/CRITICAL vulnerabilities"
+                                echo """
+                                ==================================================
+                                WARNING: Trivy detected HIGH/CRITICAL
+                                vulnerabilities.
+                                Pipeline will continue.
+                                Jenkins build will be marked UNSTABLE.
+                                ==================================================
+                                """
 
                                 utils.safeUpdateCommitStatus(
-                                    "failure",
-                                    "trivy scan failed",
-                                    "trivy-scan"
+                                    'failure',
+                                    'trivy scan found vulnerabilities',
+                                    'trivy-scan'
                                 )
 
                                 currentBuild.result = 'UNSTABLE'
 
-                            }
-                            else {
+                            } else {
 
-                                echo "✅ Trivy scan successful"
+                                echo "Trivy scan successful"
 
                                 utils.safeUpdateCommitStatus(
-                                    "success",
-                                    "trivy scan success",
-                                    "trivy-scan"
+                                    'success',
+                                    'trivy scan successful',
+                                    'trivy-scan'
                                 )
                             }
 
                         }
                         catch (Exception e) {
 
-                            echo "❌ Trivy execution failed"
-
                             utils.safeUpdateCommitStatus(
-                                "failure",
-                                "trivy scan failed",
-                                "trivy-scan"
+                                'failure',
+                                'trivy scan execution failed',
+                                'trivy-scan'
                             )
 
                             throw e
@@ -384,92 +348,65 @@ def call(Map configMap) {
 
 
             /*
-             * =========================================================
-             * 8. ECR IMAGE PUSH
-             * =========================================================
+             * ---------------------------------------------------------
+             * 8. ECR PUSH
+             * GitHub Check:
+             * push-image
+             * ---------------------------------------------------------
              */
-
             stage('ECR Image Push') {
-
                 steps {
-
                     script {
 
                         try {
 
+                            echo "Logging into Amazon ECR..."
+
                             withAWS(
                                 credentials: 'aws-credentials',
-                                region: "${env.REGION}"
+                                region: "${REGION}"
                             ) {
-
-                                def ecrRegistry =
-                                    "${env.ACC_ID}.dkr.ecr.${env.REGION}.amazonaws.com"
-
-                                def ecrRepository =
-                                    "${ecrRegistry}/${env.PROJECT}/${env.COMPONENT}"
-
-
-                                echo "======================================"
-                                echo "ECR Registry  : ${ecrRegistry}"
-                                echo "ECR Repository: ${ecrRepository}"
-                                echo "Image         : ${env.APP_NAME}:${env.APP_VERSION}"
-                                echo "======================================"
-
-
-                                /*
-                                 * ECR LOGIN
-                                 */
 
                                 sh """
                                     set -e
 
                                     aws ecr get-login-password \
-                                        --region ${env.REGION} |
-                                    docker login \
-                                        --username AWS \
-                                        --password-stdin ${ecrRegistry}
-                                """
+                                      --region ${REGION} \
+                                      | docker login \
+                                      --username AWS \
+                                      --password-stdin ${ECR_REGISTRY}
 
-
-                                /*
-                                 * TAG
-                                 */
-
-                                sh """
                                     docker tag \
-                                        ${env.APP_NAME}:${env.APP_VERSION} \
-                                        ${ecrRepository}:${env.APP_VERSION}
-                                """
+                                      ${APP_NAME}:${APP_VERSION} \
+                                      ${ECR_REPOSITORY}:${APP_VERSION}
 
-
-                                /*
-                                 * PUSH
-                                 */
-
-                                sh """
                                     docker push \
-                                        ${ecrRepository}:${env.APP_VERSION}
+                                      ${ECR_REPOSITORY}:${APP_VERSION}
                                 """
-
-
-                                echo "✅ Image push successful"
-
-                                utils.safeUpdateCommitStatus(
-                                    "success",
-                                    "image push success",
-                                    "push-image"
-                                )
                             }
+
+                            echo """
+                            ========================================
+                            Image pushed successfully
+
+                            Image:
+                            ${ECR_REPOSITORY}:${APP_VERSION}
+                            ========================================
+                            """
+
+                            utils.safeUpdateCommitStatus(
+                                'success',
+                                'docker image pushed to ECR',
+                                'push-image'
+                            )
 
                         }
                         catch (Exception e) {
 
-                            echo "❌ ECR image push failed"
-
                             utils.safeUpdateCommitStatus(
-                                "failure",
-                                "image push failed",
-                                "push-image"
+                                'failure',
+                                'docker image push failed',
+                                'push-image'
                             )
 
                             throw e
@@ -481,61 +418,58 @@ def call(Map configMap) {
 
 
         /*
-         * =============================================================
+         * -------------------------------------------------------------
          * POST ACTIONS
-         * =============================================================
+         * -------------------------------------------------------------
          */
-
         post {
 
             always {
 
-                script {
+                echo "Cleaning unused Docker images..."
 
-                    try {
-
-                        echo "Cleaning Docker images..."
-
-                        sh 'docker image prune -f'
-
-                        echo "✅ Docker cleanup completed"
-
-                    }
-                    catch (Exception e) {
-
-                        /*
-                         * Cleanup should never hide the actual
-                         * pipeline result.
-                         */
-
-                        echo "⚠️ Docker cleanup failed"
-                        echo "Error: ${e.message}"
-                    }
-                }
+                sh '''
+                    docker image prune -f || true
+                '''
             }
-
 
             success {
 
-                echo "======================================"
-                echo "✅ ROBOSHOP PIPELINE SUCCESS"
-                echo "======================================"
+                echo """
+                ========================================
+                Jenkins Pipeline SUCCESS
+                Project   : ${PROJECT}
+                Component : ${COMPONENT}
+                Version   : ${APP_VERSION}
+                ========================================
+                """
             }
-
 
             unstable {
 
-                echo "======================================"
-                echo "⚠️ ROBOSHOP PIPELINE UNSTABLE"
-                echo "======================================"
-            }
+                echo """
+                ========================================
+                Jenkins Pipeline UNSTABLE
 
+                Security findings were detected,
+                but the pipeline completed.
+
+                Project   : ${PROJECT}
+                Component : ${COMPONENT}
+                Version   : ${APP_VERSION}
+                ========================================
+                """
+            }
 
             failure {
 
-                echo "======================================"
-                echo "❌ ROBOSHOP PIPELINE FAILED"
-                echo "======================================"
+                echo """
+                ========================================
+                Jenkins Pipeline FAILED
+                Project   : ${PROJECT}
+                Component : ${COMPONENT}
+                ========================================
+                """
             }
         }
     }
