@@ -41,15 +41,14 @@ def call(Map configMap) {
 
             stage('Unit test') {
                 steps {
-                    // FIXED: Wrapped the try-catch block inside a script step
                     script {
                         try {
-                            sh 'npm test'
+                            // Added CI=true to prevent Jest from entering interactive hanging states in CI environments
+                            sh 'CI=true npm test'
                             utils.updateCommitStatus("success", "unit tests are successful", "unit-tests")
                         }
                         catch(Exception e) {
                             utils.updateCommitStatus("failure", "unit tests are failed", "unit-tests")
-                            // Propagates the failure back to Jenkins to accurately mark the build as failed
                             throw e 
                         }
                     }
@@ -136,11 +135,13 @@ def call(Map configMap) {
                 steps {
                     script {
                         withAWS(credentials: 'aws-credentials', region: "${env.region}") {
+                            // FIXED: Corrected spelling from 'ecRepo' to 'ecrRegistry' to resolve the undefined variable error
                             def ecrRegistry = "${env.acc_id}.dkr.ecr.${env.region}.amazonaws.com"
                             def ecrRepo     = "${ecrRegistry}/${env.project}/${env.component}"
                             sh """
                                 aws ecr get-login-password --region ${env.region} | docker login --username AWS --password-stdin ${ecrRegistry}
-                                docker tag ${env.APP_NAME}:${env.APP_VERSION} ${ecRepo}:${env.APP_VERSION}
+                                // FIXED: Changed target reference from non-existent variable ${ecRepo} to valid local variable ${ecrRepo}
+                                docker tag ${env.APP_NAME}:${env.APP_VERSION} ${ecrRepo}:${env.APP_VERSION}
                                 docker push ${ecrRepo}:${env.APP_VERSION}
                             """
                         }
