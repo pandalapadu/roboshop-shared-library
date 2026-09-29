@@ -45,10 +45,10 @@ def call(Map configMap) {
                     script {
                         try {
                             sh 'npm test'
-                            updateCommitStatus("success", "unit tests are successful", "unit-tests")
+                            utils.updateCommitStatus("success", "unit tests are successful", "unit-tests")
                         }
                         catch(Exception e) {
-                            updateCommitStatus("failure", "unit tests are failed", "unit-tests")
+                            utils.updateCommitStatus("failure", "unit tests are failed", "unit-tests")
                             // Propagates the failure back to Jenkins to accurately mark the build as failed
                             throw e 
                         }
