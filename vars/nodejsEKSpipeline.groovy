@@ -9,10 +9,10 @@ def call(Map configMap) {
         }
 
         environment {
-            acc_id    = "453388807064"
-            project   = configMap.get("project")
-            component = configMap.get("component")
-            region    = "us-east-1"
+            ACC_ID    = "453388807064"
+            PROJECT   = configMap.get("project")
+            COMPONENT = configMap.get("component")
+            REGION    = "us-east-1"
         }
 
         options {
@@ -22,21 +22,10 @@ def call(Map configMap) {
 
         stages {
 
-            /*
-             * ==========================================================
-             * READ VERSION
-             * ==========================================================
-             */
-
             stage('Read Version') {
-
                 steps {
-
                     script {
-
                         try {
-
-                            echo "Starting Read Version stage..."
 
                             def packageJson = readJSON file: 'package.json'
 
@@ -45,17 +34,10 @@ def call(Map configMap) {
 
                             echo "Application : ${env.APP_NAME}"
                             echo "Version     : ${env.APP_VERSION}"
-                            echo "Project     : ${env.project}"
-                            echo "Component   : ${env.component}"
-                            echo "Region      : ${env.region}"
 
-                            echo "Read Version stage completed successfully."
+                        } catch (Exception e) {
 
-                        }
-                        catch (Exception e) {
-
-                            echo "❌ Read Version stage failed."
-                            echo "Error: ${e.getMessage()}"
+                            echo "❌ Read Version failed: ${e.message}"
 
                             throw e
                         }
@@ -64,31 +46,20 @@ def call(Map configMap) {
             }
 
 
-            /*
-             * ==========================================================
-             * INSTALL DEPENDENCIES
-             * ==========================================================
-             */
-
             stage('Install Dependencies') {
-
                 steps {
-
                     script {
-
                         try {
 
-                            echo "Starting dependency installation..."
+                            echo "Installing dependencies..."
 
                             sh 'npm install'
 
-                            echo "✅ Dependencies installed successfully."
+                            echo "✅ Dependencies installed"
 
-                        }
-                        catch (Exception e) {
+                        } catch (Exception e) {
 
-                            echo "❌ Install Dependencies stage failed."
-                            echo "Error: ${e.getMessage()}"
+                            echo "❌ Dependency installation failed: ${e.message}"
 
                             throw e
                         }
@@ -97,33 +68,16 @@ def call(Map configMap) {
             }
 
 
-            /*
-             * ==========================================================
-             * UNIT TEST
-             * ==========================================================
-             */
-
             stage('Unit Test') {
-
                 steps {
-
                     script {
-
                         try {
 
-                            echo "Starting unit tests..."
+                            echo "Running unit tests..."
 
                             sh 'CI=true npm test'
 
-                            echo "✅ Unit tests completed successfully."
-
-
-                            /*
-                             * Update GitHub status
-                             *
-                             * If this fails, we don't want the GitHub
-                             * status failure to hide the actual test result.
-                             */
+                            echo "✅ Unit tests passed"
 
                             try {
 
@@ -133,33 +87,16 @@ def call(Map configMap) {
                                     "unit-tests"
                                 )
 
-                                echo "✅ GitHub commit status updated successfully."
+                            } catch (Exception statusError) {
 
-                            }
-                            catch (Exception statusError) {
-
-                                echo "⚠️ GitHub commit status update failed."
-                                echo "Status Error: ${statusError.getMessage()}"
-
-                                /*
-                                 * We intentionally don't fail the build here.
-                                 * Unit tests themselves passed.
-                                 */
+                                echo "⚠️ GitHub status update failed:"
+                                echo statusError.message
                             }
 
-                        }
-                        catch (Exception e) {
+                        } catch (Exception e) {
 
-                            echo "❌ Unit tests failed."
-                            echo "Error: ${e.getMessage()}"
-
-
-                            /*
-                             * Try to report FAILURE to GitHub.
-                             *
-                             * If GitHub update itself fails, don't hide
-                             * the original unit-test failure.
-                             */
+                            echo "❌ Unit tests failed:"
+                            echo e.message
 
                             try {
 
@@ -169,20 +106,11 @@ def call(Map configMap) {
                                     "unit-tests"
                                 )
 
-                                echo "GitHub failure status updated."
+                            } catch (Exception statusError) {
 
+                                echo "⚠️ Failed to update GitHub failure status:"
+                                echo statusError.message
                             }
-                            catch (Exception statusError) {
-
-                                echo "⚠️ Failed to update GitHub failure status."
-                                echo "Status Error: ${statusError.getMessage()}"
-
-                            }
-
-
-                            /*
-                             * Re-throw the ORIGINAL exception.
-                             */
 
                             throw e
                         }
@@ -191,18 +119,9 @@ def call(Map configMap) {
             }
 
 
-            /*
-             * ==========================================================
-             * DEPENDABOT SECURITY CHECK
-             * ==========================================================
-             */
-
             stage('Check Dependabot Alerts') {
-
                 steps {
-
                     script {
-
                         try {
 
                             withCredentials([
@@ -215,16 +134,12 @@ def call(Map configMap) {
                                 sh '''
                                     set -e
 
-                                    REPO="pandalapadu/${component}"
+                                    REPO="pandalapadu/${COMPONENT}"
 
                                     API_URL="https://api.github.com/repos/${REPO}/dependabot/alerts?state=open"
 
-                                    echo "=========================================="
-                                    echo "Checking Dependabot Alerts"
-                                    echo "Repository : ${REPO}"
-                                    echo "API URL    : ${API_URL}"
-                                    echo "=========================================="
-
+                                    echo "Checking Dependabot alerts..."
+                                    echo "Repository: ${REPO}"
 
                                     HTTP_STATUS=$(curl -sS -L \
                                         -o alerts.json \
@@ -234,41 +149,25 @@ def call(Map configMap) {
                                         -H "X-GitHub-Api-Version: 2022-11-28" \
                                         "${API_URL}")
 
-
-                                    echo "GitHub API HTTP Status: ${HTTP_STATUS}"
-
+                                    echo "HTTP Status: ${HTTP_STATUS}"
 
                                     if [ "${HTTP_STATUS}" -ne 200 ]; then
-
-                                        echo "❌ GitHub API request failed."
-
-                                        echo "Response:"
+                                        echo "❌ GitHub API request failed"
                                         cat alerts.json
-
                                         exit 1
                                     fi
 
-
                                     TOTAL_ALERTS=$(jq \
-                                        'if type == "array" then length else 0 end' \
+                                        'if type=="array" then length else 0 end' \
                                         alerts.json
                                     )
 
-
-                                    echo "Total open Dependabot alerts: ${TOTAL_ALERTS}"
-
+                                    echo "Total alerts: ${TOTAL_ALERTS}"
 
                                     if [ "${TOTAL_ALERTS}" -eq 0 ]; then
-
-                                        echo "✅ No open Dependabot alerts found."
-
+                                        echo "✅ No open Dependabot alerts"
                                         exit 0
                                     fi
-
-
-                                    echo ""
-                                    echo "----------- Open Dependabot Alerts -----------"
-
 
                                     jq -r '
                                         .[] |
@@ -277,13 +176,8 @@ def call(Map configMap) {
                                             .security_vulnerability.severity,
                                             .dependency.package.name,
                                             .security_advisory.ghsa_id
-                                        ] |
-                                        @tsv
+                                        ] | @tsv
                                     ' alerts.json
-
-
-                                    echo "----------------------------------------------"
-
 
                                     HIGH_CRITICAL_COUNT=$(jq '
                                         [
@@ -293,35 +187,24 @@ def call(Map configMap) {
                                                 or
                                                 .security_vulnerability.severity == "critical"
                                             )
-                                        ] |
-                                        length
+                                        ] | length
                                     ' alerts.json)
 
-
-                                    echo "High/Critical alert count: ${HIGH_CRITICAL_COUNT}"
-
+                                    echo "High/Critical: ${HIGH_CRITICAL_COUNT}"
 
                                     if [ "${HIGH_CRITICAL_COUNT}" -gt 0 ]; then
-
-                                        echo "❌ Found ${HIGH_CRITICAL_COUNT} High/Critical dependency alert(s)."
-
+                                        echo "❌ High/Critical vulnerabilities found"
                                         exit 1
-
-                                    else
-
-                                        echo "✅ No High/Critical dependency alerts found."
-
                                     fi
+
+                                    echo "✅ Dependabot check passed"
                                 '''
                             }
 
-                            echo "✅ Dependabot security check completed successfully."
+                        } catch (Exception e) {
 
-                        }
-                        catch (Exception e) {
-
-                            echo "❌ Dependabot stage failed."
-                            echo "Error: ${e.getMessage()}"
+                            echo "❌ Dependabot stage failed:"
+                            echo e.message
 
                             throw e
                         }
@@ -330,38 +213,25 @@ def call(Map configMap) {
             }
 
 
-            /*
-             * ==========================================================
-             * DOCKER BUILD
-             * ==========================================================
-             */
-
             stage('Docker Build') {
-
                 steps {
-
                     script {
-
                         try {
 
-                            echo "Starting Docker build..."
-
-                            echo "Image:"
-                            echo "${env.APP_NAME}:${env.APP_VERSION}"
+                            echo "Building Docker image..."
 
                             sh """
                                 docker build \
-                                    -t ${env.APP_NAME}:${env.APP_VERSION} \
-                                    .
+                                -t ${APP_NAME}:${APP_VERSION} \
+                                .
                             """
 
-                            echo "✅ Docker image built successfully."
+                            echo "✅ Docker build completed"
 
-                        }
-                        catch (Exception e) {
+                        } catch (Exception e) {
 
-                            echo "❌ Docker Build stage failed."
-                            echo "Error: ${e.getMessage()}"
+                            echo "❌ Docker build failed:"
+                            echo e.message
 
                             throw e
                         }
@@ -370,79 +240,54 @@ def call(Map configMap) {
             }
 
 
-            /*
-             * ==========================================================
-             * TRIVY SCAN
-             * ==========================================================
-             */
-
             stage('Trivy Scan') {
-
                 steps {
-
                     script {
-
                         try {
-
-                            echo "Starting Trivy security scan..."
-
-
-                            /*
-                             * Dockerfile configuration scan
-                             */
 
                             echo "Running Trivy Dockerfile scan..."
 
                             sh """
                                 trivy config \
-                                    --exit-code 0 \
-                                    --severity HIGH,CRITICAL \
-                                    --format table \
-                                    ./Dockerfile
+                                --exit-code 0 \
+                                --severity HIGH,CRITICAL \
+                                --format table \
+                                ./Dockerfile
                             """
 
 
-                            /*
-                             * Container image vulnerability scan
-                             */
+                            echo "Running Trivy image scan..."
 
-                            echo "Running Trivy image vulnerability scan..."
-
-                            def imageScan = sh(
+                            def scanResult = sh(
                                 script: """
                                     trivy image \
-                                        --scanners vuln \
-                                        --vuln-type os \
-                                        --exit-code 1 \
-                                        --severity HIGH,CRITICAL \
-                                        --ignore-unfixed \
-                                        --format table \
-                                        ${env.APP_NAME}:${env.APP_VERSION}
+                                    --scanners vuln \
+                                    --vuln-type os \
+                                    --exit-code 1 \
+                                    --severity HIGH,CRITICAL \
+                                    --ignore-unfixed \
+                                    --format table \
+                                    ${APP_NAME}:${APP_VERSION}
                                 """,
                                 returnStatus: true
                             )
 
 
-                            if (imageScan != 0) {
+                            if (scanResult != 0) {
 
-                                echo "⚠️ Trivy detected HIGH/CRITICAL CVEs."
+                                echo "⚠️ HIGH/CRITICAL vulnerabilities detected"
 
                                 currentBuild.result = 'UNSTABLE'
 
-                                echo "Build marked as UNSTABLE."
+                            } else {
 
-                            }
-                            else {
-
-                                echo "✅ No unpatched HIGH/CRITICAL OS vulnerabilities found."
-
+                                echo "✅ Trivy scan passed"
                             }
 
-                        }
-                        catch (Exception e) {
+                        } catch (Exception e) {
 
-                            echo "❌ Trivy Scan stage failed."
-                            echo "Error: ${e.getMessage()}"
+                            echo "❌ Trivy stage failed:"
+                            echo e.message
 
                             throw e
                         }
@@ -451,88 +296,51 @@ def call(Map configMap) {
             }
 
 
-            /*
-             * ==========================================================
-             * ECR IMAGE PUSH
-             * ==========================================================
-             */
-
             stage('ECR Image Push') {
-
                 steps {
-
                     script {
-
                         try {
-
-                            echo "Starting ECR image push..."
-
 
                             withAWS(
                                 credentials: 'aws-credentials',
-                                region: "${env.region}"
+                                region: "${REGION}"
                             ) {
 
-                                def ecrRegistry =
-                                    "${env.acc_id}.dkr.ecr.${env.region}.amazonaws.com"
+                                def registry =
+                                    "${ACC_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-                                def ecrRepo =
-                                    "${ecrRegistry}/${env.project}/${env.component}"
-
-
-                                echo "ECR Registry  : ${ecrRegistry}"
-                                echo "ECR Repository: ${ecrRepo}"
-                                echo "Image         : ${env.APP_NAME}:${env.APP_VERSION}"
+                                def repository =
+                                    "${registry}/${PROJECT}/${COMPONENT}"
 
 
-                                /*
-                                 * Login to ECR
-                                 */
+                                echo "ECR Registry : ${registry}"
+                                echo "ECR Repository: ${repository}"
 
-                                echo "Logging into ECR..."
 
                                 sh """
+                                    set -e
+
                                     aws ecr get-login-password \
-                                        --region ${env.region} |
+                                    --region ${REGION} |
                                     docker login \
-                                        --username AWS \
-                                        --password-stdin ${ecrRegistry}
-                                """
+                                    --username AWS \
+                                    --password-stdin ${registry}
 
-
-                                /*
-                                 * Tag image
-                                 */
-
-                                echo "Tagging Docker image..."
-
-                                sh """
                                     docker tag \
-                                        ${env.APP_NAME}:${env.APP_VERSION} \
-                                        ${ecrRepo}:${env.APP_VERSION}
-                                """
+                                    ${APP_NAME}:${APP_VERSION} \
+                                    ${repository}:${APP_VERSION}
 
-
-                                /*
-                                 * Push image
-                                 */
-
-                                echo "Pushing Docker image..."
-
-                                sh """
                                     docker push \
-                                        ${ecrRepo}:${env.APP_VERSION}
+                                    ${repository}:${APP_VERSION}
                                 """
 
-
-                                echo "✅ Docker image pushed successfully."
+                                echo "✅ Image pushed successfully"
                             }
 
-                        }
-                        catch (Exception e) {
+                        } catch (Exception e) {
 
-                            echo "❌ ECR Image Push stage failed."
-                            echo "Error: ${e.getMessage()}"
+                            echo "❌ ECR push failed:"
+                            echo e.message
 
                             throw e
                         }
@@ -542,63 +350,43 @@ def call(Map configMap) {
         }
 
 
-        /*
-         * ==============================================================
-         * POST ACTIONS
-         * ==============================================================
-         */
-
         post {
 
             always {
-
                 script {
-
                     try {
 
-                        echo "Running Docker cleanup..."
+                        echo "Cleaning Docker images..."
 
                         sh 'docker image prune -f'
 
-                        echo "✅ Docker cleanup completed."
+                    } catch (Exception e) {
 
-                    }
-                    catch (Exception e) {
-
-                        /*
-                         * Cleanup failure should not hide the actual
-                         * pipeline failure.
-                         */
-
-                        echo "⚠️ Docker cleanup failed."
-                        echo "Cleanup Error: ${e.getMessage()}"
-
+                        echo "⚠️ Docker cleanup failed:"
+                        echo e.message
                     }
                 }
             }
 
 
             success {
-
-                echo "=========================================="
-                echo "✅ ROBOSHOP PIPELINE SUCCESS"
-                echo "=========================================="
+                echo "======================================"
+                echo "✅ PIPELINE SUCCESS"
+                echo "======================================"
             }
 
 
             unstable {
-
-                echo "=========================================="
-                echo "⚠️ ROBOSHOP PIPELINE UNSTABLE"
-                echo "=========================================="
+                echo "======================================"
+                echo "⚠️ PIPELINE UNSTABLE"
+                echo "======================================"
             }
 
 
             failure {
-
-                echo "=========================================="
-                echo "❌ ROBOSHOP PIPELINE FAILED"
-                echo "=========================================="
+                echo "======================================"
+                echo "❌ PIPELINE FAILED"
+                echo "======================================"
             }
         }
     }
